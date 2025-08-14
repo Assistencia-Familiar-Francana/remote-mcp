@@ -1,0 +1,34 @@
+{
+  "mcpServers": {
+    "ff-ssh": {
+      "command": "/home/ramanujan/anaconda3/bin/python",
+      "args": ["/home/ramanujan/PP/funeraria/remote-mcp/start_mcp_server.py"],
+      "cwd": "/home/ramanujan/PP/funeraria/remote-mcp",
+      "env": {
+        "MCP_SSH_HOST": "ff.buddhilw.com",
+        "MCP_SSH_USER": "abel",
+        "MCP_SSH_KEY": "/home/ramanujan/.ssh/id_ed25519",
+        "MCP_SSH_PORT": "22",
+        "MCP_SERVER_NAME": "ff-ssh",
+        "MCP_SERVER_DESCRIPTION": "FF Kubernetes Master - Via Cloudflare SSH Tunnel",
+        "DEBUG": "true",
+        "LOG_LEVEL": "INFO"
+      }
+    },
+    "bourbaki-ssh": {
+      "command": "/home/ramanujan/anaconda3/bin/python",
+      "args": ["/home/ramanujan/PP/funeraria/remote-mcp/start_mcp_server.py"],
+      "cwd": "/home/ramanujan/PP/funeraria/remote-mcp",
+      "env": {
+        "MCP_SSH_HOST": "bourbaki.buddhilw.com",
+        "MCP_SSH_USER": "euler",
+        "MCP_SSH_KEY": "/home/ramanujan/.ssh/id_ed25519",
+        "MCP_SSH_PORT": "22",
+        "MCP_SERVER_NAME": "bourbaki-ssh",
+        "MCP_SERVER_DESCRIPTION": "Bourbaki Worker Node - Via Cloudflare SSH Tunnel",
+        "DEBUG": "true",
+        "LOG_LEVEL": "INFO"
+      }
+    }
+  }
+}

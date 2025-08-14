@@ -1,0 +1,7 @@
+tunnel: 34a5ee95-a090-4c2d-b1a3-749f9265e3c8
+credentials-file: /home/euler/.cloudflared/34a5ee95-a090-4c2d-b1a3-749f9265e3c8.json
+
+ingress:
+  - hostname: bourbaki.buddhilw.com
+    service: ssh://localhost:22
+  - service: http_status:404

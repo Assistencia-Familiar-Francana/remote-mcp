@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "remote-ssh": {
+      "command": "python",
+      "args": ["-m", "mcp_remote_ssh.server"],
+      "env": {
+        "MCP_SSH_HOST": "your-remote-host.com",
+        "MCP_SSH_USER": "your-username",
+        "MCP_SSH_KEY": "/path/to/your/private/key",
+        "MCP_SSH_PORT": "22",
+        "DEBUG": "false",
+        "LOG_LEVEL": "INFO"
+      }
+    }
+  }
+}

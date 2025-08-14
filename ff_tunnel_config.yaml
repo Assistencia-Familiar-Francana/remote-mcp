@@ -1,0 +1,7 @@
+tunnel: c6bf208d-0c39-418a-bc87-cfeb03c94149
+credentials-file: /home/abel/.cloudflared/c6bf208d-0c39-418a-bc87-cfeb03c94149.json
+
+ingress:
+  - hostname: ff.buddhilw.com
+    service: ssh://localhost:22
+  - service: http_status:404

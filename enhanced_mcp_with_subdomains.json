@@ -1,0 +1,64 @@
+{
+  "mcpServers": {
+    "ff-direct": {
+      "command": "/home/ramanujan/anaconda3/bin/python",
+      "args": ["/home/ramanujan/PP/funeraria/remote-mcp/start_mcp_server.py"],
+      "cwd": "/home/ramanujan/PP/funeraria/remote-mcp",
+      "env": {
+        "MCP_SSH_HOST": "100.65.56.110",
+        "MCP_SSH_USER": "abel",
+        "MCP_SSH_KEY": "/home/ramanujan/.ssh/id_ed25519",
+        "MCP_SSH_PORT": "22",
+        "MCP_SERVER_NAME": "ff-direct",
+        "MCP_SERVER_DESCRIPTION": "FF Kubernetes Master - Direct Connection",
+        "DEBUG": "true",
+        "LOG_LEVEL": "INFO"
+      }
+    },
+    "ff-tunnel": {
+      "command": "/home/ramanujan/anaconda3/bin/python",
+      "args": ["/home/ramanujan/PP/funeraria/remote-mcp/start_mcp_server.py"],
+      "cwd": "/home/ramanujan/PP/funeraria/remote-mcp",
+      "env": {
+        "MCP_SSH_HOST": "buddhilw.duckdns.org",
+        "MCP_SSH_USER": "abel",
+        "MCP_SSH_KEY": "/home/ramanujan/.ssh/id_ed25519",
+        "MCP_SSH_PORT": "22",
+        "MCP_SERVER_NAME": "ff-tunnel",
+        "MCP_SERVER_DESCRIPTION": "FF Kubernetes Master - Via DuckDNS/Cloudflare",
+        "DEBUG": "true",
+        "LOG_LEVEL": "INFO"
+      }
+    },
+    "bourbaki-tunnel": {
+      "command": "/home/ramanujan/anaconda3/bin/python",
+      "args": ["/home/ramanujan/PP/funeraria/remote-mcp/start_mcp_server.py"],
+      "cwd": "/home/ramanujan/PP/funeraria/remote-mcp",
+      "env": {
+        "MCP_SSH_HOST": "127.0.0.1",
+        "MCP_SSH_USER": "euler",
+        "MCP_SSH_KEY": "/home/ramanujan/.ssh/id_ed25519",
+        "MCP_SSH_PORT": "2222",
+        "MCP_SERVER_NAME": "bourbaki-tunnel",
+        "MCP_SERVER_DESCRIPTION": "Bourbaki Worker Node - Via Cloudflare Tunnel",
+        "DEBUG": "true",
+        "LOG_LEVEL": "INFO"
+      }
+    },
+    "bourbaki-duckdns": {
+      "command": "/home/ramanujan/anaconda3/bin/python",
+      "args": ["/home/ramanujan/PP/funeraria/remote-mcp/start_mcp_server.py"],
+      "cwd": "/home/ramanujan/PP/funeraria/remote-mcp",
+      "env": {
+        "MCP_SSH_HOST": "bourbaki.duckdns.org",
+        "MCP_SSH_USER": "euler",
+        "MCP_SSH_KEY": "/home/ramanujan/.ssh/id_ed25519",
+        "MCP_SSH_PORT": "22",
+        "MCP_SERVER_NAME": "bourbaki-duckdns",
+        "MCP_SERVER_DESCRIPTION": "Bourbaki Worker Node - Via DuckDNS/Cloudflare",
+        "DEBUG": "true",
+        "LOG_LEVEL": "INFO"
+      }
+    }
+  }
+}

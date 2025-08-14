@@ -1,0 +1,23 @@
+{
+  "name": "mcp-ssh-node",
+  "version": "0.1.0",
+  "description": "Node.js implementation of MCP SSH server",
+  "main": "ssh-mcp.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/ssh-mcp.js",
+    "dev": "ts-node ssh-mcp.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.4.0",
+    "ssh2": "^1.15.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.0"
+  },
+  "keywords": ["mcp", "ssh", "remote", "claude", "cursor"],
+  "author": "Your Name",
+  "license": "MIT"
+}

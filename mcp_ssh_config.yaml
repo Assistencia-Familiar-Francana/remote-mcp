@@ -1,0 +1,86 @@
+# MCP Remote SSH Configuration File
+# This file allows you to customize security and connection settings
+
+security:
+  # Commands that are allowed to run (whitelist)
+  allowed_commands:
+    # File operations
+    - "ls"
+    - "cat"
+    - "head" 
+    - "tail"
+    - "grep"
+    - "find"
+    - "du"
+    - "df"
+    - "file"
+    - "stat"
+    
+    # System info
+    - "uname"
+    - "whoami"
+    - "hostname"
+    - "id"
+    - "pwd"
+    - "date"
+    - "uptime"
+    - "free"
+    - "lscpu"
+    - "ps"
+    
+    # Kubernetes (for your cluster)
+    - "kubectl"
+    - "k9s"
+    - "helm"
+    
+    # System services
+    - "systemctl"
+    - "journalctl"
+    
+    # Text processing
+    - "awk"
+    - "sed"
+    - "sort"
+    - "uniq"
+    - "wc"
+    
+    # Docker
+    - "docker"
+    - "docker-compose"
+    
+    # Git
+    - "git"
+  
+  # Commands that are explicitly denied (blacklist)
+  denied_commands:
+    - "rm"
+    - "rmdir"
+    - "mv" 
+    - "sudo"
+    - "su"
+    - "passwd"
+    - "reboot"
+    - "shutdown"
+    - "kill"
+    - "killall"
+  
+  # Output limits
+  max_output_bytes: 131072  # 128KB
+  max_output_lines: 1000
+  
+  # Execution limits
+  command_timeout_seconds: 30
+  rate_limit_per_minute: 60
+  max_sessions: 5
+
+ssh:
+  default_host: null
+  default_port: 22
+  default_username: null
+  key_path: null
+  connect_timeout: 30
+  keepalive_interval: 30
+
+# Logging
+debug: false
+log_level: "INFO"
