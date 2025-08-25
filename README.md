@@ -177,7 +177,7 @@ The project follows SOLID principles with clear separation of concerns:
 
 ## 📄 License
 
-[Add your license information here]
+[GNU General Public License (GPL) v3, 29 June 2007](./LICENSE)
 
 ## 🆘 Support
 
