@@ -1,311 +1,138 @@
 # MCP Remote SSH Server
 
-A secure Model Context Protocol (MCP) server that provides controlled SSH access to remote machines through Claude Desktop, Cursor, or other MCP-compatible clients.
+A robust, SOLID-compliant Multi-Context Protocol (MCP) server for remote SSH operations with advanced password management and security features.
 
 ## 🚀 Features
 
-- **Persistent SSH Sessions**: Maintains shell state across commands (cwd, environment)
-- **Security First**: Command allowlist, output limits, timeout controls
-- **Multiple Sessions**: Manage multiple SSH connections simultaneously  
-- **File Operations**: Upload/download files with safety checks
-- **Cloudflare Tunnel Support**: Works with your existing tunnel setup
-- **Comprehensive Logging**: Safe logging with secret redaction
+- **SOLID Architecture**: Clean, maintainable code following SOLID principles
+- **Advanced Password Management**: Environmental, interactive, and session-specific password handling
+- **Security-First**: Comprehensive security patterns and command validation
+- **Session Management**: Persistent SSH sessions with automatic cleanup
+- **Tool Handlers**: Extensible tool system for SSH operations
+- **Timeout Management**: Intelligent timeout handling to prevent hanging commands
 
-## 🔧 Installation
+## 📁 Project Structure
 
-### Using uv (Recommended)
+```
+remote-mcp/
+├── mcp_remote_ssh/          # Main package
+│   ├── __init__.py
+│   ├── server.py            # MCP server implementation
+│   ├── session.py           # SSH session management
+│   ├── session_manager.py   # Session lifecycle management
+│   ├── tool_handlers.py     # Tool handler implementations
+│   ├── config.py            # Configuration management
+│   ├── security.py          # Security validation
+│   ├── security_patterns.py # Security pattern management
+│   ├── password_handler.py  # Password handling system
+│   ├── interactive_password_service.py # Interactive password service
+│   └── tests/               # Unit and integration tests
+├── docs/                    # Documentation
+├── demos/                   # Example demonstrations
+├── scripts/                 # Utility scripts
+├── configs/                 # Configuration files
+├── start_mcp_server.py      # Server startup script
+├── pyproject.toml           # Project configuration
+└── README.md               # This file
+```
+
+## 🛠️ Quick Start
+
+### Installation
+
 ```bash
-git clone <your-repo>
+# Clone the repository
+git clone <repository-url>
 cd remote-mcp
-uv sync
+
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-### Using pip
+### Configuration
+
+Set up environment variables:
+
 ```bash
-git clone <your-repo>
-cd remote-mcp
-pip install -e .
+export MCP_SSH_HOST="your-host.com"
+export MCP_SSH_USER="your-username"
+export MCP_SSH_KEY="/path/to/your/ssh/key"
+export MCP_SSH_SUDO_PASSWORD="your-sudo-password"  # Optional
+export MCP_SSH_INTERACTIVE_PASSWORD="true"         # Optional
 ```
 
-## ⚙️ Configuration
+### Running the Server
 
-### Environment Variables
 ```bash
-# Copy example configuration
-cp env.example .env
-
-# Edit configuration
-MCP_SSH_HOST=your-remote-host.com
-MCP_SSH_PORT=22
-MCP_SSH_USER=your-username
-MCP_SSH_KEY=/path/to/your/private/key
-DEBUG=false
+python start_mcp_server.py
 ```
 
-### For Your Cloudflare Setup
-```bash
-# For ff node (direct access)
-MCP_SSH_HOST=100.65.56.110
-MCP_SSH_USER=abel
-MCP_SSH_PORT=22
+## 📚 Documentation
 
-# For bourbaki node (via tunnel)
-# First start tunnel: cloudflared access tcp --hostname bourbaki.buddhilw.com --listener 127.0.0.1:2222
-MCP_SSH_HOST=127.0.0.1
-MCP_SSH_PORT=2222
-MCP_SSH_USER=euler
-```
-
-### Advanced Configuration
-Create `mcp_ssh_config.yaml` to customize security settings:
-
-```yaml
-security:
-  allowed_commands:
-    - "kubectl"
-    - "docker"
-    - "systemctl"
-    # ... more commands
-  
-  max_output_bytes: 131072  # 128KB
-  command_timeout_seconds: 30
-  max_sessions: 5
-```
-
-## 🚦 Quick Start
-
-### 1. Start the MCP Server
-```bash
-# Using uv
-uv run python -m mcp_remote_ssh.server
-
-# Using python directly  
-python -m mcp_remote_ssh.server
-```
-
-### 2. Configure Cursor/Claude Desktop
-
-Add to your MCP configuration file:
-
-**Cursor**: `~/.cursor/mcp.json`
-**Claude Desktop**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "remote-ssh": {
-      "command": "python",
-      "args": ["-m", "mcp_remote_ssh.server"],
-      "env": {
-        "MCP_SSH_HOST": "100.65.56.110",
-        "MCP_SSH_USER": "abel",
-        "MCP_SSH_KEY": "/home/ramanujan/.ssh/id_ed25519"
-      }
-    }
-  }
-}
-```
-
-### 3. Use in Claude/Cursor
-
-```
-Connect to my Kubernetes master node and check the pod status.
-```
-
-The AI will automatically:
-1. Establish SSH connection using `ssh_connect`
-2. Execute `kubectl get pods` using `ssh_run`
-3. Return formatted results
-
-## 🛠️ Available Tools
-
-### `ssh_connect`
-Establish SSH connection to remote host.
-```python
-ssh_connect(
-    host="100.65.56.110",
-    port=22,
-    username="abel",
-    auth={"key_path": "/path/to/key"}
-)
-```
-
-### `ssh_run`
-Execute command in persistent session.
-```python
-ssh_run(
-    session_id="abc123",
-    cmd="kubectl get pods -n funeraria-francana",
-    timeout_ms=30000
-)
-```
-
-### `ssh_upload`
-Upload file to remote system.
-```python
-ssh_upload(
-    session_id="abc123", 
-    path="/tmp/config.yaml",
-    bytes_base64="<base64-encoded-content>"
-)
-```
-
-### `ssh_download`
-Download file from remote system.
-```python
-ssh_download(
-    session_id="abc123",
-    path="/var/log/app.log",
-    max_bytes=65536
-)
-```
-
-### `ssh_list_sessions`
-List all active SSH sessions.
-
-### `ssh_disconnect`
-Close SSH session.
-
-## 🔒 Security Features
-
-### Command Allowlist
-Only pre-approved commands can be executed:
-- File operations: `ls`, `cat`, `head`, `tail`, `grep`, `find`
-- System info: `uname`, `whoami`, `uptime`, `free`
-- Kubernetes: `kubectl`, `helm`
-- Docker: `docker`, `docker-compose`
-- System services: `systemctl status`, `journalctl`
-
-### Prohibited Commands
-Dangerous operations are blocked:
-- File modification: `rm`, `mv`, `cp`
-- System changes: `sudo`, `passwd`, `reboot`
-- Network tools: `nc`, `telnet`, `ssh`
-
-### Output Protection
-- Maximum output size (128KB default)
-- Line count limits (1000 lines default)  
-- Command timeouts (30 seconds default)
-- Secret redaction (API keys, tokens, private keys)
-
-### Path Validation
-File operations restricted to safe directories:
-- `/home/` - User directories
-- `/var/log/` - Log files
-- `/tmp/` - Temporary files
-- `/opt/` - Optional software
+- **[Password Management](docs/PASSWORD_MANAGEMENT.md)** - Comprehensive guide to password handling
+- **[Deployment Guide](docs/DEPLOYMENT_GUIDE.md)** - Deployment and configuration instructions
+- **[API Reference](docs/README.md)** - Detailed API documentation
 
 ## 🧪 Testing
 
-### Unit Tests
+Run the test suite:
+
 ```bash
 # Run all tests
-uv run pytest
+python -m pytest mcp_remote_ssh/tests/
 
-# Run with coverage
-uv run pytest --cov=mcp_remote_ssh
-
-# Run specific test file
-uv run pytest mcp_remote_ssh/tests/test_security.py -v
+# Run specific test categories
+python -m pytest mcp_remote_ssh/tests/test_tool_handlers.py
+python -m pytest mcp_remote_ssh/tests/test_password_functionality.py
 ```
 
-### Integration Tests
-```bash
-# Requires Docker for SSH server
-docker run -d -p 2222:22 linuxserver/openssh-server
-uv run pytest -m integration
-```
+## 🔧 Development
 
-## 🐛 Debugging
+### Architecture Overview
 
-### Enable Debug Mode
-```bash
-DEBUG=true python -m mcp_remote_ssh.server
-```
+The project follows SOLID principles with clear separation of concerns:
 
-### Check Logs
-```bash
-# Server logs show connection attempts and command execution
-tail -f ~/.local/share/mcp-remote-ssh/logs/server.log
-```
+- **Tool Handlers**: Each MCP tool has its own handler class
+- **Session Management**: Centralized session lifecycle management
+- **Security Patterns**: Extensible security pattern system
+- **Password Management**: Multi-strategy password handling
 
-### Validate Commands
-```python
-# Test command validation
-ssh_validate_command("kubectl get pods")
-# Returns: {"allowed": true, "reason": "Command allowed"}
-```
+### Adding New Tools
 
-## 🚨 Security Considerations
+1. Create a new handler class in `tool_handlers.py`
+2. Implement the `ToolHandler` interface
+3. Add the handler to `ToolHandlerFactory`
+4. Register the tool in `server.py`
+5. Add tests in `tests/`
 
-### Recommended Setup
-1. **Dedicated User**: Create restricted user for MCP access
-   ```bash
-   sudo useradd -m -s /bin/bash mcp-user
-   sudo usermod -aG docker mcp-user  # If needed
-   ```
+### Adding New Security Patterns
 
-2. **SSH Key Authentication**: Never use passwords
-   ```bash
-   ssh-keygen -t ed25519 -f ~/.ssh/mcp_key
-   ssh-copy-id -i ~/.ssh/mcp_key mcp-user@remote-host
-   ```
+1. Create a new pattern class in `security_patterns.py`
+2. Implement the `SecurityPattern` interface
+3. Add the pattern to `SecurityPatternManager`
+4. Add tests for the new pattern
 
-3. **Network Restrictions**: Use firewall rules or VPN
-   ```bash
-   # Limit SSH access to specific IPs
-   sudo ufw allow from YOUR.IP.ADDRESS to any port 22
-   ```
+## 🔒 Security
 
-### Production Checklist
-- [ ] Dedicated user account with minimal privileges
-- [ ] SSH key authentication only (no passwords)
-- [ ] Firewall rules restricting SSH access
-- [ ] Regular security updates on remote systems
-- [ ] Monitor logs for suspicious activity
-- [ ] Test command allowlist thoroughly
-- [ ] Set appropriate resource limits
-
-## 🎯 Use Cases
-
-### Kubernetes Management
-```
-Check the status of my funeral announcement backend pods and show recent logs.
-```
-
-### System Monitoring
-```
-Show me the system resources and check if any services are failing.
-```
-
-### Log Analysis
-```
-Search the nginx logs for any 5xx errors in the last hour.
-```
-
-### File Management
-```
-Download the latest application config file and show me its contents.
-```
+- **Command Validation**: All commands are validated against security patterns
+- **Password Security**: Secure password handling with timeouts
+- **Session Isolation**: Each session is isolated and managed separately
+- **Audit Logging**: Comprehensive logging for security auditing
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Add tests for new functionality
-4. Ensure all tests pass (`uv run pytest`)
-5. Submit pull request
+1. Follow SOLID principles
+2. Write comprehensive tests
+3. Update documentation
+4. Use meaningful commit messages
 
-## 📝 License
+## 📄 License
 
-MIT License - see LICENSE file for details.
+[Add your license information here]
 
-## 🔗 Links
+## 🆘 Support
 
-- [Model Context Protocol](https://docs.anthropic.com/en/docs/mcp)
-- [Paramiko Documentation](https://docs.paramiko.org/)
-- [FastMCP](https://github.com/jlowin/fastmcp)
-
----
-
-**⚠️ Important**: This tool provides AI agents with shell access to your systems. Always review the security settings and use dedicated accounts with minimal privileges.
+For issues and questions:
+1. Check the documentation in `docs/`
+2. Review the test examples in `mcp_remote_ssh/tests/`
+3. Check the demo scripts in `demos/`

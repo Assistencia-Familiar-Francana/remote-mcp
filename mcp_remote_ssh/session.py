@@ -14,6 +14,8 @@ import paramiko
 from paramiko import SSHClient, Channel, Transport
 from .config import get_config
 from .security import get_security_manager, CommandValidationResult
+from .password_handler import create_password_manager
+from .interactive_password_service import get_password_service
 
 logger = logging.getLogger(__name__)
 
@@ -145,115 +147,270 @@ class SSHSession:
     
     async def execute_command(self, command: str, input_data: Optional[str] = None, 
                             timeout_ms: Optional[int] = None, 
-                            max_bytes: Optional[int] = None) -> CommandResult:
+                            max_bytes: Optional[int] = None,
+                            sudo_password: Optional[str] = None) -> CommandResult:
         """Execute a command in the persistent shell."""
-        if not self.connected or not self.channel:
-            raise Exception("Session not connected")
+        self._validate_session_state()
+        self._validate_command(command)
         
-        # Validate command
-        validation = self.security.validate_command(command)
-        if not validation.allowed:
-            raise Exception(f"Command not allowed: {validation.reason}")
-        
-        start_time = time.time()
-        timeout_seconds = (timeout_ms or self.config.security.command_timeout_seconds * 1000) / 1000
-        max_output_bytes = max_bytes or self.config.security.max_output_bytes
+        execution_context = self._create_execution_context(command, timeout_ms, max_bytes, sudo_password)
         
         with self.lock:
             try:
-                # Send command with exit status capture
-                cmd_with_status = f"set +e; {validation.sanitized_cmd}; echo __EXIT_STATUS:$?__"
-                
-                self.channel.send(cmd_with_status + '\n')
-                
-                # Send input if provided
-                if input_data:
-                    self.channel.send(input_data)
-                
-                # Read output
-                stdout_parts = []
-                stderr_parts = []
-                total_bytes = 0
-                truncated = False
-                exit_status = None
-                
-                # Read until we get the exit status marker or timeout
-                end_time = time.time() + timeout_seconds
-                buffer = ""
-                
-                while time.time() < end_time:
-                    if self.channel.recv_ready():
-                        chunk = self.channel.recv(4096).decode('utf-8', errors='ignore')
-                        buffer += chunk
-                        total_bytes += len(chunk)
-                        
-                        # Check for exit status marker
-                        if '__EXIT_STATUS:' in buffer:
-                            # Extract exit status
-                            match = re.search(r'__EXIT_STATUS:(\d+)__', buffer)
-                            if match:
-                                exit_status = int(match.group(1))
-                                # Remove the marker from output
-                                buffer = re.sub(r'__EXIT_STATUS:\d+__\s*', '', buffer)
-                                break
-                        
-                        # Check output limits
-                        if total_bytes > max_output_bytes:
-                            truncated = True
-                            break
-                    
-                    if self.channel.recv_stderr_ready():
-                        stderr_chunk = self.channel.recv_stderr(4096).decode('utf-8', errors='ignore')
-                        stderr_parts.append(stderr_chunk)
-                        total_bytes += len(stderr_chunk)
-                        
-                        if total_bytes > max_output_bytes:
-                            truncated = True
-                            break
-                    
-                    # Small delay to avoid busy waiting
-                    await asyncio.sleep(0.01)
-                
-                # Clean up the output (remove command echo and prompts)
-                stdout = self._clean_output(buffer)
-                stderr = ''.join(stderr_parts)
-                
-                # Update last used time
-                self.last_used = datetime.now()
-                
-                # Calculate duration
-                duration_ms = int((time.time() - start_time) * 1000)
-                
-                # Redact secrets from output
-                stdout = self.security.redact_secrets(stdout)
-                stderr = self.security.redact_secrets(stderr)
-                
-                # Limit output lines
-                stdout_lines = stdout.split('\n')
-                if len(stdout_lines) > self.config.security.max_output_lines:
-                    stdout_lines = stdout_lines[:self.config.security.max_output_lines]
-                    stdout_lines.append(f"... [output truncated after {self.config.security.max_output_lines} lines]")
-                    stdout = '\n'.join(stdout_lines)
-                    truncated = True
-                
-                result = CommandResult(
-                    stdout=stdout,
-                    stderr=stderr,
-                    exit_status=exit_status,
-                    duration_ms=duration_ms,
-                    truncated=truncated,
-                    session_id=self.session_id
-                )
-                
-                # Log command execution (if safe to log)
-                if self.security.should_log_command(command):
-                    logger.info(f"Session {self.session_id} executed: {command} (exit: {exit_status}, {duration_ms}ms)")
-                
+                self._send_command(execution_context)
+                output_data = await self._read_command_output(execution_context)
+                result = self._create_command_result(execution_context, output_data)
+                self._log_command_execution(command, result)
                 return result
                 
             except Exception as e:
                 logger.error(f"Command execution failed in session {self.session_id}: {e}")
                 raise
+    
+    def _validate_session_state(self) -> None:
+        """Validate that the session is connected and ready."""
+        if not self.connected or not self.channel:
+            raise Exception("Session not connected")
+    
+    def _validate_command(self, command: str) -> None:
+        """Validate that the command is allowed to execute."""
+        validation = self.security.validate_command(command)
+        if not validation.allowed:
+            raise Exception(f"Command not allowed: {validation.reason}")
+    
+    def _create_execution_context(self, command: str, timeout_ms: Optional[int], 
+                                max_bytes: Optional[int], sudo_password: Optional[str]) -> Dict[str, Any]:
+        """Create execution context with all necessary parameters."""
+        # Create password manager with interactive support
+        password_manager = None
+        if sudo_password or self.config.ssh.enable_interactive_password:
+            password_service = get_password_service()
+            
+            # Create interactive callback if enabled
+            interactive_callback = None
+            if self.config.ssh.enable_interactive_password:
+                async def password_callback(prompt, context):
+                    return await password_service.request_password(
+                        prompt_text=prompt.prompt_text,
+                        prompt_type=prompt.prompt_type,
+                        session_id=self.session_id,
+                        host=self.host,
+                        username=self.username,
+                        command=command
+                    )
+                interactive_callback = password_callback
+            
+            password_manager = create_password_manager(
+                sudo_password=sudo_password,
+                interactive_callback=interactive_callback,
+                enable_interactive=self.config.ssh.enable_interactive_password
+            )
+        
+        return {
+            'command': command,
+            'start_time': time.time(),
+            'timeout_seconds': (timeout_ms or self.config.security.command_timeout_seconds * 1000) / 1000,
+            'max_output_bytes': max_bytes or self.config.security.max_output_bytes,
+            'password_manager': password_manager,
+            'sanitized_command': self.security.validate_command(command).sanitized_cmd
+        }
+    
+    def _send_command(self, context: Dict[str, Any]) -> None:
+        """Send the command to the SSH channel."""
+        cmd_with_status = f"set +e; {context['sanitized_command']}; echo __EXIT_STATUS:$?__"
+        self.channel.send(cmd_with_status + '\n')
+    
+    async def _read_command_output(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Read command output with timeout and password handling."""
+        output_data = {
+            'stdout_parts': [],
+            'stderr_parts': [],
+            'buffer': "",
+            'total_bytes': 0,
+            'truncated': False,
+            'exit_status': None
+        }
+        
+        end_time = time.time() + context['timeout_seconds']
+        last_output_time = time.time()
+        
+        while time.time() < end_time:
+            if self._is_hanging(last_output_time, context['start_time']):
+                return self._create_timeout_result(context['start_time'])
+            
+            await self._process_stdout_chunk(context, output_data, last_output_time)
+            await self._process_stderr_chunk(context, output_data, last_output_time)
+            
+            if self._should_stop_reading(output_data, context):
+                break
+            
+            await asyncio.sleep(0.01)
+        
+        return output_data
+    
+    def _is_hanging(self, last_output_time: float, start_time: float) -> bool:
+        """Check if command is hanging (no output for 10 seconds)."""
+        return time.time() - last_output_time > 10
+    
+    def _create_timeout_result(self, start_time: float) -> Dict[str, Any]:
+        """Create timeout result when command is hanging."""
+        logger.warning(f"Command appears to be hanging (no output for 10s) in session {self.session_id}")
+        return {
+            'stdout_parts': [],
+            'stderr_parts': [],
+            'buffer': "",
+            'total_bytes': 0,
+            'truncated': False,
+            'exit_status': 1,
+            'timeout_error': "Command timed out - may be waiting for input. Check if password is required."
+        }
+    
+    async def _process_stdout_chunk(self, context: Dict[str, Any], output_data: Dict[str, Any], 
+                                  last_output_time: float) -> None:
+        """Process a chunk of stdout data."""
+        if not self.channel.recv_ready():
+            return
+        
+        chunk = self.channel.recv(4096).decode('utf-8', errors='ignore')
+        output_data['buffer'] += chunk
+        output_data['total_bytes'] += len(chunk)
+        last_output_time = time.time()
+        
+        await self._handle_password_prompts(context, output_data)
+        self._check_exit_status(output_data)
+    
+    async def _process_stderr_chunk(self, context: Dict[str, Any], output_data: Dict[str, Any], 
+                                  last_output_time: float) -> None:
+        """Process a chunk of stderr data."""
+        if not self.channel.recv_stderr_ready():
+            return
+        
+        stderr_chunk = self.channel.recv_stderr(4096).decode('utf-8', errors='ignore')
+        output_data['stderr_parts'].append(stderr_chunk)
+        output_data['total_bytes'] += len(stderr_chunk)
+        last_output_time = time.time()
+    
+    async def _handle_password_prompts(self, context: Dict[str, Any], output_data: Dict[str, Any]) -> None:
+        """Handle password prompts in the output."""
+        if context['password_manager']:
+            await self._handle_password_with_manager(context, output_data)
+        else:
+            self._check_for_password_prompt_without_manager(context, output_data)
+    
+    async def _handle_password_with_manager(self, context: Dict[str, Any], output_data: Dict[str, Any]) -> None:
+        """Handle password prompt using password manager."""
+        prompt_context = {
+            "session_id": self.session_id,
+            "command": context['command'],
+            "host": self.host,
+            "username": self.username
+        }
+        
+        password_response = await context['password_manager'].detect_and_handle_prompt(
+            output_data['buffer'], prompt_context
+        )
+        
+        if password_response and password_response.password:
+            self.channel.send(password_response.password + '\n')
+            logger.info(f"Sent password for session {self.session_id}")
+            output_data['buffer'] = ""
+        elif password_response and password_response.error:
+            logger.warning(f"Password handling error: {password_response.error}")
+    
+    def _check_for_password_prompt_without_manager(self, context: Dict[str, Any], output_data: Dict[str, Any]) -> None:
+        """Check for password prompt when no password manager is available."""
+        sudo_patterns = [
+            r'\[sudo\] password for [^:]+:',
+            r'Password:',
+            r'sudo: a terminal is required to read the password',
+        ]
+        
+        for pattern in sudo_patterns:
+            if re.search(pattern, output_data['buffer'], re.IGNORECASE):
+                logger.warning(f"Password prompt detected but no password provided for session {self.session_id}")
+                output_data['password_error'] = "Password required but not provided. Use sudo_password parameter."
+                output_data['exit_status'] = 1
+                break
+    
+    def _check_exit_status(self, output_data: Dict[str, Any]) -> None:
+        """Check for exit status marker in output."""
+        if '__EXIT_STATUS:' in output_data['buffer']:
+            match = re.search(r'__EXIT_STATUS:(\d+)__', output_data['buffer'])
+            if match:
+                output_data['exit_status'] = int(match.group(1))
+                output_data['buffer'] = re.sub(r'__EXIT_STATUS:\d+__\s*', '', output_data['buffer'])
+    
+    def _should_stop_reading(self, output_data: Dict[str, Any], context: Dict[str, Any]) -> bool:
+        """Determine if we should stop reading output."""
+        return (output_data['exit_status'] is not None or 
+                output_data['total_bytes'] > context['max_output_bytes'] or
+                'password_error' in output_data or
+                'timeout_error' in output_data)
+    
+    def _create_command_result(self, context: Dict[str, Any], output_data: Dict[str, Any]) -> CommandResult:
+        """Create CommandResult from execution context and output data."""
+        if 'timeout_error' in output_data:
+            return CommandResult(
+                stdout="",
+                stderr=output_data['timeout_error'],
+                exit_status=1,
+                duration_ms=int((time.time() - context['start_time']) * 1000),
+                truncated=False,
+                session_id=self.session_id
+            )
+        
+        if 'password_error' in output_data:
+            return CommandResult(
+                stdout="",
+                stderr=output_data['password_error'],
+                exit_status=1,
+                duration_ms=int((time.time() - context['start_time']) * 1000),
+                truncated=False,
+                session_id=self.session_id
+            )
+        
+        stdout = self._clean_output(output_data['buffer'])
+        stderr = ''.join(output_data['stderr_parts'])
+        
+        # Update last used time
+        self.last_used = datetime.now()
+        
+        # Calculate duration
+        duration_ms = int((time.time() - context['start_time']) * 1000)
+        
+        # Redact secrets from output
+        stdout = self.security.redact_secrets(stdout)
+        stderr = self.security.redact_secrets(stderr)
+        
+        # Limit output lines
+        stdout, truncated = self._limit_output_lines(stdout, output_data['truncated'])
+        
+        return CommandResult(
+            stdout=stdout,
+            stderr=stderr,
+            exit_status=output_data['exit_status'],
+            duration_ms=duration_ms,
+            truncated=truncated,
+            session_id=self.session_id
+        )
+    
+    def _limit_output_lines(self, stdout: str, already_truncated: bool) -> Tuple[str, bool]:
+        """Limit stdout to maximum number of lines."""
+        stdout_lines = stdout.split('\n')
+        truncated = already_truncated
+        
+        if len(stdout_lines) > self.config.security.max_output_lines:
+            stdout_lines = stdout_lines[:self.config.security.max_output_lines]
+            stdout_lines.append(f"... [output truncated after {self.config.security.max_output_lines} lines]")
+            stdout = '\n'.join(stdout_lines)
+            truncated = True
+        
+        return stdout, truncated
+    
+    def _log_command_execution(self, command: str, result: CommandResult) -> None:
+        """Log command execution if safe to do so."""
+        if self.security.should_log_command(command):
+            logger.info(f"Session {self.session_id} executed: {command} (exit: {result.exit_status}, {result.duration_ms}ms)")
     
     async def upload_file(self, remote_path: str, content: bytes, mode: str = "644") -> bool:
         """Upload file content to remote system."""
@@ -366,7 +523,7 @@ class SSHSession:
         
         return '\n'.join(cleaned_lines)
     
-    def get_info(self) -> SessionInfo:
+    def get_session_info(self) -> SessionInfo:
         """Get session information."""
         return SessionInfo(
             session_id=self.session_id,
@@ -378,70 +535,4 @@ class SSHSession:
             environment=self.environment.copy()
         )
 
-class SessionManager:
-    """Manages multiple SSH sessions."""
-    
-    def __init__(self):
-        self.sessions: Dict[str, SSHSession] = {}
-        self.config = get_config()
-        self.lock = threading.Lock()
-    
-    async def create_session(self, session_id: str, host: str, port: int = 22, 
-                           username: Optional[str] = None) -> SSHSession:
-        """Create a new SSH session."""
-        if len(self.sessions) >= self.config.security.max_sessions:
-            # Remove oldest session
-            await self._cleanup_oldest_session()
-        
-        username = username or self.config.ssh.default_username or "root"
-        
-        session = SSHSession(session_id, host, port, username)
-        
-        with self.lock:
-            self.sessions[session_id] = session
-        
-        return session
-    
-    def get_session(self, session_id: str) -> Optional[SSHSession]:
-        """Get existing session by ID."""
-        return self.sessions.get(session_id)
-    
-    async def remove_session(self, session_id: str):
-        """Remove and disconnect session."""
-        session = self.sessions.get(session_id)
-        if session:
-            await session.disconnect()
-            with self.lock:
-                del self.sessions[session_id]
-    
-    async def cleanup_expired_sessions(self):
-        """Remove expired sessions."""
-        now = datetime.now()
-        expired_sessions = []
-        
-        for session_id, session in self.sessions.items():
-            if now - session.last_used > timedelta(hours=8):  # 8 hour timeout
-                expired_sessions.append(session_id)
-        
-        for session_id in expired_sessions:
-            await self.remove_session(session_id)
-    
-    async def _cleanup_oldest_session(self):
-        """Remove the oldest session to make room for new one."""
-        if not self.sessions:
-            return
-        
-        oldest_session_id = min(self.sessions.keys(), 
-                               key=lambda sid: self.sessions[sid].last_used)
-        await self.remove_session(oldest_session_id)
-    
-    def list_sessions(self) -> List[SessionInfo]:
-        """List all active sessions."""
-        return [session.get_info() for session in self.sessions.values()]
-
-# Global session manager
-session_manager = SessionManager()
-
-def get_session_manager() -> SessionManager:
-    """Get the global session manager."""
-    return session_manager
+# Session manager is now in session_manager.py

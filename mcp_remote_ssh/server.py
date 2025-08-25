@@ -22,8 +22,10 @@ except ImportError:
     print("MCP dependencies not installed. Install with: pip install modelcontextprotocol")
 
 from .config import get_config
-from .session import get_session_manager, CommandResult, SessionInfo
+from .session_manager import get_session_manager
+from .session import CommandResult, SessionInfo
 from .security import get_security_manager
+from .tool_handlers import ToolHandlerFactory
 
 # Configure logging
 logging.basicConfig(
@@ -36,6 +38,7 @@ logger = logging.getLogger(__name__)
 config = get_config()
 session_manager = get_session_manager()
 security_manager = get_security_manager()
+tool_handler_factory = ToolHandlerFactory()
 
 def main():
     """Main entry point."""
@@ -56,80 +59,14 @@ def main():
         auth: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Establish SSH connection to a remote host."""
-        try:
-            # Use defaults from config if not provided
-            if host is None:
-                host = config.ssh.default_host
-            if port is None:
-                port = config.ssh.default_port
-            if username is None:
-                username = config.ssh.default_username
-            
-            # Validate required parameters
-            if not host:
-                return {
-                    "success": False,
-                    "error": "Host is required. Either provide it as parameter or set MCP_SSH_HOST environment variable."
-                }
-            if not username:
-                return {
-                    "success": False,
-                    "error": "Username is required. Either provide it as parameter or set MCP_SSH_USER environment variable."
-                }
-            
-            # Generate session ID if not provided
-            if not session_id:
-                session_id = str(uuid.uuid4())[:8]
-            
-            # Create session
-            session = await session_manager.create_session(
-                session_id=session_id,
-                host=host,
-                port=port,
-                username=username
-            )
-            
-            # Determine authentication method
-            auth_method = "key"
-            auth_kwargs = {}
-            
-            if auth:
-                if "password" in auth:
-                    auth_method = "password"
-                    auth_kwargs["password"] = auth["password"]
-                elif "key_path" in auth:
-                    auth_kwargs["key_path"] = auth["key_path"]
-                elif "key_pem_base64" in auth:
-                    auth_kwargs["key_pem_base64"] = auth["key_pem_base64"]
-            else:
-                # Use default key path from config
-                if config.ssh.key_path:
-                    auth_kwargs["key_path"] = config.ssh.key_path
-            
-            # Connect
-            success = await session.connect(auth_method, **auth_kwargs)
-            
-            if success:
-                return {
-                    "success": True,
-                    "session_id": session_id,
-                    "host": host,
-                    "username": session.username,
-                    "message": f"Connected to {session.username}@{host}:{port}"
-                }
-            else:
-                return {
-                    "success": False,
-                    "session_id": session_id,
-                    "error": "Failed to establish SSH connection"
-                }
-                
-        except Exception as e:
-            logger.error(f"SSH connect error: {e}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
+        handler = tool_handler_factory.create_handler('ssh_connect')
+        return await handler.execute(
+            host=host,
+            port=port,
+            username=username,
+            session_id=session_id,
+            auth=auth
+        )
 
     @mcp.tool()
     async def ssh_run(
@@ -137,94 +74,49 @@ def main():
         cmd: str,
         input_data: Optional[str] = None,
         timeout_ms: Optional[int] = None,
-        max_bytes: Optional[int] = None
+        max_bytes: Optional[int] = None,
+        sudo_password: Optional[str] = None
     ) -> Dict[str, Any]:
         """Execute a command in an existing SSH session."""
-        try:
-            # Get session
-            session = session_manager.get_session(session_id)
-            if not session:
-                return {
-                    "success": False,
-                    "error": f"Session '{session_id}' not found"
-                }
-            
-            if not session.connected:
-                return {
-                    "success": False,
-                    "error": f"Session '{session_id}' not connected"
-                }
-            
-            # Execute command
-            result = await session.execute_command(
-                command=cmd,
-                input_data=input_data,
-                timeout_ms=timeout_ms,
-                max_bytes=max_bytes
-            )
-            
-            return {
-                "success": True,
-                "session_id": session_id,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "exit_status": result.exit_status,
-                "duration_ms": result.duration_ms,
-                "truncated": result.truncated
-            }
-            
-        except Exception as e:
-            logger.error(f"SSH run error: {e}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
+        handler = tool_handler_factory.create_handler('ssh_run')
+        return await handler.execute(
+            session_id=session_id,
+            cmd=cmd,
+            input_data=input_data,
+            timeout_ms=timeout_ms,
+            max_bytes=max_bytes,
+            sudo_password=sudo_password
+        )
 
     @mcp.tool()
     async def ssh_disconnect(session_id: str) -> Dict[str, Any]:
         """Disconnect SSH session."""
-        try:
-            await session_manager.remove_session(session_id)
-            return {
-                "success": True,
-                "session_id": session_id,
-                "message": f"Session '{session_id}' disconnected"
-            }
-        except Exception as e:
-            logger.error(f"SSH disconnect error: {e}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
+        handler = tool_handler_factory.create_handler('ssh_disconnect')
+        return await handler.execute(session_id=session_id)
 
     @mcp.tool()
     async def ssh_list_sessions() -> Dict[str, Any]:
         """List all active SSH sessions."""
-        try:
-            sessions = session_manager.list_sessions()
-            
-            session_list = []
-            for session_info in sessions:
-                session_list.append({
-                    "session_id": session_info.session_id,
-                    "host": session_info.host,
-                    "username": session_info.username,
-                    "connected_at": session_info.connected_at.isoformat(),
-                    "last_used": session_info.last_used.isoformat(),
-                    "current_dir": session_info.current_dir
-                })
-            
-            return {
-                "success": True,
-                "sessions": session_list,
-                "count": len(session_list)
-            }
-        except Exception as e:
-            logger.error(f"SSH list sessions error: {e}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
+        handler = tool_handler_factory.create_handler('ssh_list_sessions')
+        return await handler.execute()
+
+    @mcp.tool()
+    async def ssh_list_password_requests() -> Dict[str, Any]:
+        """List all pending password requests."""
+        handler = tool_handler_factory.create_handler('ssh_list_password_requests')
+        return await handler.execute()
+
+    @mcp.tool()
+    async def ssh_provide_password(request_id: str, password: str) -> Dict[str, Any]:
+        """Provide a password for a pending request."""
+        handler = tool_handler_factory.create_handler('ssh_provide_password')
+        return await handler.execute(request_id=request_id, password=password)
+
+    @mcp.tool()
+    async def ssh_cancel_password_request(request_id: str) -> Dict[str, Any]:
+        """Cancel a pending password request."""
+        handler = tool_handler_factory.create_handler('ssh_cancel_password_request')
+        return await handler.execute(request_id=request_id)
 
     # Cleanup task
     async def cleanup_task():
