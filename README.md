@@ -51,6 +51,8 @@ pip install -r requirements.txt
 
 ### Configuration
 
+#### Environment Variables
+
 Set up environment variables:
 
 ```bash
@@ -60,6 +62,53 @@ export MCP_SSH_KEY="/path/to/your/ssh/key"
 export MCP_SSH_SUDO_PASSWORD="your-sudo-password"  # Optional
 export MCP_SSH_INTERACTIVE_PASSWORD="true"         # Optional
 ```
+
+#### MCP Configuration File
+
+For Cursor IDE integration, create a `.cursor/mcp.json` file:
+
+```json
+{
+  "mcpServers": {
+    "production-ssh": {
+      "command": "/usr/bin/python3",
+      "args": ["/path/to/remote-mcp/start_mcp_server.py"],
+      "cwd": "/path/to/remote-mcp",
+      "env": {
+        "MCP_SSH_HOST": "your-production-host.com",
+        "MCP_SSH_USER": "admin",
+        "MCP_SSH_KEY": "/path/to/your/ssh/private_key",
+        "MCP_SSH_PORT": "22",
+        "MCP_SSH_PROXY_COMMAND": "cloudflared access ssh --hostname %h",
+        "MCP_SERVER_NAME": "production-ssh",
+        "MCP_SERVER_DESCRIPTION": "Production Server - Enhanced Permissions for Admin",
+        "MCP_SSH_SUDO_PASSWORD": "your-sudo-password",
+        "MCP_SSH_INTERACTIVE_PASSWORD": "true",
+        "DEBUG": "false",
+        "LOG_LEVEL": "INFO"
+      }
+    },
+    "staging-ssh": {
+      "command": "/usr/bin/python3",
+      "args": ["/path/to/remote-mcp/start_mcp_server.py"],
+      "cwd": "/path/to/remote-mcp",
+      "env": {
+        "MCP_SSH_HOST": "staging.example.com",
+        "MCP_SSH_USER": "deploy",
+        "MCP_SSH_KEY": "/path/to/your/ssh/staging_key",
+        "MCP_SSH_PORT": "2222",
+        "MCP_SERVER_NAME": "staging-ssh",
+        "MCP_SERVER_DESCRIPTION": "Staging Environment - Deployment Access",
+        "MCP_SSH_INTERACTIVE_PASSWORD": "true",
+        "DEBUG": "true",
+        "LOG_LEVEL": "DEBUG"
+      }
+    }
+  }
+}
+```
+
+**Security Note**: Replace sensitive values like passwords, hostnames, and file paths with your actual configuration. Never commit real credentials to version control.
 
 ### Running the Server
 
