@@ -4,6 +4,7 @@ import re
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Dict, Any, Optional
 from dataclasses import dataclass
+from .config import get_config, PermissibilityLevel
 
 @dataclass
 class PatternMatch:
@@ -101,6 +102,7 @@ class SecurityPatternManager:
         self.secret_patterns: List[SecretPattern] = []
         self.dangerous_patterns: List[DangerousPattern] = []
         self.command_patterns: Dict[str, List[CommandPattern]] = {}
+        self.config = get_config().security
         self._initialize_patterns()
     
     def _initialize_patterns(self) -> None:
@@ -122,13 +124,18 @@ class SecurityPatternManager:
         ]
     
     def _initialize_dangerous_patterns(self) -> None:
-        """Initialize dangerous operation patterns."""
+        """Initialize dangerous operation patterns based on permissibility level."""
+        # These patterns are additional to the permissibility-level patterns
+        # and focus on more sophisticated attack patterns
         self.dangerous_patterns = [
-            DangerousPattern("command_chaining", r'&&|\|\||;|\||`|\$\(|>|>>|<|\*|\?|\[|\]'),
-            DangerousPattern("rm_rf_root", r'rm\s+-rf\s+/'),
-            DangerousPattern("dd_disk_wipe", r'dd\s+if=/dev/zero\s+of=/dev/sd[a-z]'),
-            DangerousPattern("mkfs_destruction", r'mkfs\.ext4\s+/dev/sd[a-z]'),
-            DangerousPattern("fdisk_destruction", r'fdisk\s+/dev/sd[a-z]'),
+            DangerousPattern("script_injection", r'<script[^>]*>.*?</script>'),
+            DangerousPattern("sql_injection", r'(\b(union|select|insert|update|delete|drop|create|alter)\b.*\b(from|into|where|table|database)\b)'),
+            DangerousPattern("path_traversal", r'\.\./\.\./'),
+            DangerousPattern("command_substitution", r'\$\([^)]*\)'),
+            DangerousPattern("backticks", r'`[^`]*`'),
+            DangerousPattern("heredoc", r'<<\s*\w+'),
+            DangerousPattern("process_substitution", r'<\([^)]*\)'),
+            DangerousPattern("arithmetic_expansion", r'\$\(\([^)]*\)\)'),
         ]
     
     def _initialize_command_patterns(self) -> None:
@@ -165,6 +172,9 @@ class SecurityPatternManager:
                 CommandPattern("git_branch", r'^branch(\s+-[a-zA-Z]+)*$'),
                 CommandPattern("git_diff", r'^diff(\s+\S+)*$'),
                 CommandPattern("git_show", r'^show(\s+\S+)*$'),
+            ],
+            'sudo': [
+                CommandPattern("sudo_safe", r'^.*$'),
             ]
         }
     
@@ -237,5 +247,6 @@ class SecurityPatternManager:
             "secret_patterns": len(self.secret_patterns),
             "dangerous_patterns": len(self.dangerous_patterns),
             "command_patterns": sum(len(patterns) for patterns in self.command_patterns.values()),
-            "commands_with_patterns": len(self.command_patterns)
+            "commands_with_patterns": len(self.command_patterns),
+            "permissibility_level": self.config.permissibility_level.value
         }

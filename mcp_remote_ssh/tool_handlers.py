@@ -5,6 +5,7 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
+import os
 
 from .config import get_config
 from .session_manager import get_session_manager
@@ -147,6 +148,13 @@ class SSHRunHandler(ToolHandler):
             # Get sudo password from config if not provided
             if not sudo_password and self.context.config.ssh.sudo_password:
                 sudo_password = self.context.config.ssh.sudo_password
+            
+            # If still no sudo password, try MCP_PASSWORD as fallback
+            if not sudo_password:
+                mcp_password = os.getenv('MCP_PASSWORD')
+                if mcp_password:
+                    sudo_password = mcp_password
+                    logger.debug(f"Using MCP_PASSWORD as fallback for sudo in session {session_id}")
             
             # Execute command
             result = await session.execute_command(
@@ -360,6 +368,35 @@ class SSHCancelPasswordRequestHandler(ToolHandler):
             return "request_id is required"
         return None
 
+class SSHGetPermissibilityInfoHandler(ToolHandler):
+    """Handles getting permissibility level information."""
+    
+    async def execute(self, **kwargs) -> Dict[str, Any]:
+        """Get information about current permissibility level and restrictions."""
+        try:
+            # Validate parameters
+            error = self.validate_parameters(**kwargs)
+            if error:
+                return {"success": False, "error": error}
+            
+            # Get permissibility information from security manager
+            permissibility_info = self.context.security_manager.get_permissibility_info()
+            
+            return {
+                "success": True,
+                "permissibility_info": permissibility_info,
+                "message": f"Current permissibility level: {permissibility_info['permissibility_level']}"
+            }
+            
+        except Exception as e:
+            logger.error(f"SSH get permissibility info error: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def validate_parameters(self, **kwargs) -> Optional[str]:
+        """Validate SSH get permissibility info parameters."""
+        # No parameters required for this tool
+        return None
+
 class ToolHandlerFactory:
     """Factory for creating tool handlers following Factory Pattern."""
     
@@ -380,6 +417,7 @@ class ToolHandlerFactory:
             'ssh_list_password_requests': SSHListPasswordRequestsHandler,
             'ssh_provide_password': SSHProvidePasswordHandler,
             'ssh_cancel_password_request': SSHCancelPasswordRequestHandler,
+            'ssh_get_permissibility_info': SSHGetPermissibilityInfoHandler,
         }
         
         handler_class = handlers.get(tool_name)

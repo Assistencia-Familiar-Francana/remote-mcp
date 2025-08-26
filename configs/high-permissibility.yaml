@@ -1,0 +1,49 @@
+# High Permissibility Configuration for MCP Remote SSH
+# This configuration allows full administrative access with sudo
+# Use this for system administration, deployment, and full access scenarios
+
+security:
+  # High permissibility level - allows sudo and command chaining
+  permissibility_level: high
+  
+  # Commands that are always denied regardless of permissibility level
+  always_denied_commands:
+    - "rm -rf /"
+    - "dd if=/dev/zero of=/dev/sda"
+    - "mkfs.ext4 /dev/sda"
+    - "fdisk /dev/sda"
+    - "mkfs.ext4 /dev/sdX"
+    - "fdisk /dev/sdX"
+    - "dd if=/dev/zero of=/dev/sdX"
+    - "rm -rf /sdX"
+  
+  # Pattern restrictions for high permissibility (minimal)
+  high_permissibility_patterns:
+    - 'rm\\s+-rf\\s+/$'  # Only exact match for root deletion
+    - 'dd\\s+if=/dev/zero\\s+of=/dev/sd[a-z]$'  # Only exact match for disk wiping
+    - 'mkfs\\.ext4\\s+/dev/sd[a-z]$'  # Only exact match for filesystem destruction
+    - 'fdisk\\s+/dev/sd[a-z]$'  # Only exact match for partition destruction
+  
+  # Security settings optimized for administrative access
+  max_output_bytes: 20971520  # 20MB for large logs and outputs
+  max_output_lines: 20000     # More lines for extensive logs
+  command_timeout_seconds: 600  # 10 minutes for long operations
+  rate_limit_per_minute: 1000   # Higher rate for admin tasks
+  max_sessions: 50              # More concurrent sessions
+
+# SSH connection configuration
+ssh:
+  default_host: your-admin-host.com
+  default_port: 22
+  default_username: admin
+  key_path: /path/to/admin/private/key
+  proxy_command: null
+  connect_timeout: 30
+  keepalive_interval: 30
+  default_password: null
+  sudo_password: your-sudo-password  # Required for high permissibility
+  enable_interactive_password: true
+
+# General settings
+debug: false
+log_level: INFO

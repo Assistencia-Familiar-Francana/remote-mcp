@@ -50,8 +50,12 @@ class SudoPasswordHandler(PasswordHandler):
         self.sudo_password = sudo_password
         self.sudo_patterns = [
             r'\[sudo\] password for [^:]+:',
+            r'\[sudo\] password for [^:]*$',
             r'Password:',
+            r'password:',
             r'sudo: a terminal is required to read the password',
+            r'sudo: no tty present and no askpass program specified',
+            r'We trust you have received the usual lecture from the local System',
         ]
     
     def can_handle(self, prompt_type: str) -> bool:
@@ -63,6 +67,7 @@ class SudoPasswordHandler(PasswordHandler):
         for pattern in self.sudo_patterns:
             match = re.search(pattern, output, re.IGNORECASE)
             if match:
+                logger.debug(f"Detected sudo prompt with pattern: {pattern}")
                 return PasswordPrompt(
                     prompt_type='sudo',
                     prompt_text=match.group(0),
@@ -80,7 +85,7 @@ class SudoPasswordHandler(PasswordHandler):
             logger.warning("Sudo password not provided, cannot handle prompt")
             return PasswordResponse(error="Sudo password not provided")
         
-        logger.info("Handling sudo password prompt")
+        logger.info(f"Handling sudo password prompt for command: {context.get('command', 'unknown')}")
         return PasswordResponse(password=self.sudo_password)
 
 class InteractivePasswordHandler(PasswordHandler):
@@ -101,14 +106,18 @@ class InteractivePasswordHandler(PasswordHandler):
             r'password:',
             r'Enter password:',
             r'\[sudo\] password for [^:]+:',
+            r'\[sudo\] password for [^:]*$',
             r'sudo: a terminal is required to read the password',
+            r'sudo: no tty present and no askpass program specified',
             r'SSH password:',
             r'SSH key passphrase:',
+            r'We trust you have received the usual lecture from the local System',
         ]
         
         for pattern in patterns:
             match = re.search(pattern, output, re.IGNORECASE)
             if match:
+                logger.debug(f"Detected interactive prompt with pattern: {pattern}")
                 return PasswordPrompt(
                     prompt_type='interactive',
                     prompt_text=match.group(0),

@@ -1,0 +1,296 @@
+# Example configuration file for MCP Remote SSH with permissibility levels
+# Copy this file and customize for your environment
+
+# Security configuration with permissibility levels
+security:
+  # Permissibility level: low, medium, or high
+  permissibility_level: high  # Change this to low, medium, or high
+  
+  # Low permissibility commands (basic operations only)
+  low_permissibility_commands:
+    - "ls"
+    - "cat"
+    - "head"
+    - "tail"
+    - "grep"
+    - "find"
+    - "du"
+    - "df"
+    - "file"
+    - "stat"
+    - "uname"
+    - "whoami"
+    - "id"
+    - "pwd"
+    - "date"
+    - "uptime"
+    - "free"
+    - "lscpu"
+    - "ps"
+    - "top"
+    - "htop"
+    - "pgrep"
+    - "pidof"
+    - "ping"
+    - "curl"
+    - "wget"
+    - "netstat"
+    - "ss"
+    - "dig"
+    - "nslookup"
+    - "ip"
+    - "route"
+    - "arp"
+    - "ifconfig"
+    - "awk"
+    - "sed"
+    - "sort"
+    - "uniq"
+    - "wc"
+    - "cut"
+    - "tr"
+    - "echo"
+    - "printf"
+    - "which"
+    - "whereis"
+    - "type"
+    - "hash"
+    - "env"
+    - "export"
+    - "unset"
+    - "history"
+    - "cd"
+    - "pwd"
+  
+  # Medium permissibility commands (includes low + moderate operations)
+  medium_permissibility_commands:
+    - "nano"
+    - "vim"
+    - "vi"
+    - "tee"
+    - "cp"
+    - "mv"
+    - "rm"
+    - "rmdir"
+    - "mkdir"
+    - "touch"
+    - "chmod"
+    - "chown"
+    - "ln"
+    - "chattr"
+    - "lsattr"
+    - "kill"
+    - "killall"
+    - "pkill"
+    - "nohup"
+    - "systemctl"
+    - "journalctl"
+    - "service"
+    - "iwconfig"
+    - "tcpdump"
+    - "wireshark"
+    - "kubectl"
+    - "k9s"
+    - "helm"
+    - "k3s"
+    - "k3s-agent"
+    - "crictl"
+    - "ctr"
+    - "tar"
+    - "gzip"
+    - "gunzip"
+    - "zip"
+    - "unzip"
+    - "bzip2"
+    - "xz"
+    - "git"
+    - "docker"
+    - "docker-compose"
+    - "podman"
+    - "buildah"
+    - "ssh"
+    - "scp"
+    - "rsync"
+    - "tailscale"
+    - "tailscaled"
+    - "cloudflared"
+    - "apt"
+    - "apt-get"
+    - "dpkg"
+    - "snap"
+    - "yum"
+    - "dnf"
+    - "pacman"
+    - "strace"
+    - "ltrace"
+    - "gdb"
+    - "valgrind"
+    - "perf"
+    - "iotop"
+    - "iostat"
+    - "lshw"
+    - "lspci"
+    - "lsusb"
+    - "lsmod"
+    - "dmesg"
+    - "lspcmcia"
+    - "useradd"
+    - "usermod"
+    - "userdel"
+    - "groupadd"
+    - "groupmod"
+    - "groupdel"
+    - "passwd"
+    - "chpasswd"
+    - "newusers"
+    - "vipw"
+    - "vigr"
+    - "openssl"
+    - "certbot"
+    - "letsencrypt"
+    - "ufw"
+    - "iptables"
+    - "firewall-cmd"
+    - "ssh-keygen"
+    - "ssh-add"
+    - "ssh-copy-id"
+    - "htop"
+    - "iotop"
+    - "iftop"
+    - "nethogs"
+    - "nload"
+    - "bmon"
+    - "nmtui"
+    - "mount"
+    - "umount"
+    - "fdisk"
+    - "parted"
+    - "mkfs"
+    - "fsck"
+    - "tune2fs"
+    - "bash"
+    - "sh"
+    - "zsh"
+    - "fish"
+    - "screen"
+    - "tmux"
+    - "nohup"
+    - "emacs"
+    - "joe"
+    - "ed"
+    - "ex"
+    - "view"
+    - "nc"
+    - "netcat"
+    - "telnet"
+    - "nmap"
+    - "traceroute"
+    - "mtr"
+    - "whois"
+    - "sync"
+    - "swapon"
+    - "swapoff"
+    - "mkswap"
+    - "blkid"
+    - "lsblk"
+    - "logrotate"
+    - "logwatch"
+    - "logcheck"
+    - "fail2ban"
+    - "rsyslog"
+    - "timedatectl"
+    - "ntpdate"
+    - "chrony"
+    - "systemd-timesyncd"
+    - "upower"
+    - "tlp"
+    - "powertop"
+    - "cpupower"
+    - "cpufreq-set"
+    - "alias"
+    - "unalias"
+    - "set"
+    - "readonly"
+    - "declare"
+    - "local"
+    - "return"
+    - "exit"
+    - "source"
+    - "exec"
+    - "eval"
+    - "trap"
+    - "wait"
+    - "jobs"
+    - "fg"
+    - "bg"
+    - "fc"
+    - "pushd"
+    - "popd"
+    - "dirs"
+  
+  # High permissibility commands (includes medium + sudo and advanced operations)
+  high_permissibility_commands:
+    - "sudo"
+    - "sudoedit"
+    - "reboot"
+    - "shutdown"
+    - "halt"
+    - "poweroff"
+    - "init"
+    - "modprobe"
+  
+  # Commands that are always denied regardless of permissibility level
+  always_denied_commands:
+    - "rm -rf /"
+    - "dd if=/dev/zero of=/dev/sda"
+    - "mkfs.ext4 /dev/sda"
+    - "fdisk /dev/sda"
+    - "mkfs.ext4 /dev/sdX"
+    - "fdisk /dev/sdX"
+    - "dd if=/dev/zero of=/dev/sdX"
+    - "rm -rf /sdX"
+  
+  # Pattern restrictions based on permissibility level
+  low_permissibility_patterns:
+    - '&&|\\|\\||;|\\||`|\\$\\(|>|>>|<|\\*|\\?|\\[|\\]'
+    - '\\bsudo\\b'
+    - 'rm\\s+-rf\\s+/'
+    - 'dd\\s+if=/dev/zero\\s+of=/dev/sd[a-z]'
+    - 'mkfs\\.ext4\\s+/dev/sd[a-z]'
+    - 'fdisk\\s+/dev/sd[a-z]'
+  
+  medium_permissibility_patterns:
+    - 'rm\\s+-rf\\s+/'
+    - 'dd\\s+if=/dev/zero\\s+of=/dev/sd[a-z]'
+    - 'mkfs\\.ext4\\s+/dev/sd[a-z]'
+    - 'fdisk\\s+/dev/sd[a-z]'
+  
+  high_permissibility_patterns:
+    - 'rm\\s+-rf\\s+/$'
+    - 'dd\\s+if=/dev/zero\\s+of=/dev/sd[a-z]$'
+    - 'mkfs\\.ext4\\s+/dev/sd[a-z]$'
+    - 'fdisk\\s+/dev/sd[a-z]$'
+  
+  # Other security settings
+  max_output_bytes: 10485760  # 10MB
+  max_output_lines: 10000
+  command_timeout_seconds: 300
+  rate_limit_per_minute: 500
+  max_sessions: 20
+
+# SSH connection configuration
+ssh:
+  default_host: your-remote-host.com
+  default_port: 22
+  default_username: your-username
+  key_path: /path/to/your/private/key
+  proxy_command: null
+  connect_timeout: 30
+  keepalive_interval: 30
+  default_password: null
+  sudo_password: null
+  enable_interactive_password: true
+
+# General settings
+debug: false
+log_level: INFO

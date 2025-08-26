@@ -118,6 +118,12 @@ def main():
         handler = tool_handler_factory.create_handler('ssh_cancel_password_request')
         return await handler.execute(request_id=request_id)
 
+    @mcp.tool()
+    async def ssh_get_permissibility_info() -> Dict[str, Any]:
+        """Get information about current permissibility level and restrictions."""
+        handler = tool_handler_factory.create_handler('ssh_get_permissibility_info')
+        return await handler.execute()
+
     # Cleanup task
     async def cleanup_task():
         """Background task to cleanup expired sessions."""
@@ -135,7 +141,8 @@ def main():
     
     logger.info("Starting MCP Remote SSH Server")
     logger.info(f"Max sessions: {config.security.max_sessions}")
-    logger.info(f"Allowed commands: {len(config.security.allowed_commands)}")
+    logger.info(f"Permissibility level: {config.security.permissibility_level.value}")
+    logger.info(f"Allowed commands: {len(config.security.get_allowed_commands())}")
     
     # Run the server
     mcp.run()

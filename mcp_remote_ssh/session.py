@@ -181,6 +181,31 @@ class SSHSession:
     def _create_execution_context(self, command: str, timeout_ms: Optional[int], 
                                 max_bytes: Optional[int], sudo_password: Optional[str]) -> Dict[str, Any]:
         """Create execution context with all necessary parameters."""
+        logger.debug(f"Creating execution context for command: {command}")
+        logger.debug(f"Initial sudo_password parameter: {bool(sudo_password)}")
+        logger.debug(f"Config sudo_password: {bool(self.config.ssh.sudo_password)}")
+        logger.debug(f"MCP_PASSWORD env var: {bool(os.getenv('MCP_PASSWORD'))}")
+        
+        # Use sudo password from config if not provided explicitly
+        if not sudo_password and self.config.ssh.sudo_password:
+            sudo_password = self.config.ssh.sudo_password
+            logger.debug(f"Using sudo password from config for session {self.session_id}")
+        
+        # If still no sudo password, try MCP_PASSWORD as fallback
+        if not sudo_password:
+            mcp_password = os.getenv('MCP_PASSWORD')
+            if mcp_password:
+                sudo_password = mcp_password
+                logger.debug(f"Using MCP_PASSWORD as fallback for sudo in session {self.session_id}")
+        
+        # Log password availability for debugging
+        if command.strip().startswith('sudo'):
+            if sudo_password:
+                logger.debug(f"Sudo command detected with password available for session {self.session_id}")
+                logger.debug(f"Password length: {len(sudo_password)} characters")
+            else:
+                logger.warning(f"Sudo command detected but no password available for session {self.session_id}")
+        
         # Create password manager with interactive support
         password_manager = None
         if sudo_password or self.config.ssh.enable_interactive_password:
@@ -205,6 +230,18 @@ class SSHSession:
                 interactive_callback=interactive_callback,
                 enable_interactive=self.config.ssh.enable_interactive_password
             )
+            
+            if sudo_password:
+                logger.debug(f"Password manager created with sudo password for session {self.session_id}")
+                # Log the handlers in the password manager
+                for handler in password_manager.handlers:
+                    logger.debug(f"Password manager handler: {handler.__class__.__name__}")
+                    if hasattr(handler, 'sudo_password') and handler.sudo_password:
+                        logger.debug(f"Handler {handler.__class__.__name__} has sudo password")
+            else:
+                logger.debug(f"Password manager created without sudo password for session {self.session_id}")
+        else:
+            logger.debug(f"No password manager created for session {self.session_id}")
         
         return {
             'command': command,
@@ -215,9 +252,73 @@ class SSHSession:
             'sanitized_command': self.security.validate_command(command).sanitized_cmd
         }
     
+    def _make_command_noninteractive(self, cmd: str) -> str:
+        """Transform command to avoid interactive hangs (sudo/systemctl/journalctl)."""
+        original = cmd
+        try:
+            stripped = cmd.strip()
+            logger.debug(f"Noninteractive transform input: '{original}'")
+            
+            # Check if we should force non-interactive sudo
+            force_noninteractive = getattr(self.config, 'force_noninteractive_sudo', False)
+            logger.debug(f"Force noninteractive sudo: {force_noninteractive}")
+            
+            # Ensure sudo is non-interactive if configured
+            if stripped.startswith('sudo ') and force_noninteractive:
+                parts = stripped.split()
+                # Insert -n right after sudo if not present
+                if '-n' not in parts[1:3]:
+                    parts.insert(1, '-n')
+                stripped = ' '.join(parts)
+                logger.debug(f"Added -n to sudo command: '{stripped}'")
+            
+            # Handle systemctl/journalctl commands more intelligently
+            # Only add --no-pager to the actual systemctl/journalctl command, not to pipes
+            if '|' in stripped:
+                # Split by pipe and process each part
+                parts = stripped.split('|')
+                processed_parts = []
+                logger.debug(f"Processing piped command with {len(parts)} parts")
+                for i, part in enumerate(parts):
+                    part = part.strip()
+                    logger.debug(f"Processing part {i}: '{part}'")
+                    # Only add --no-pager to systemctl/journalctl commands
+                    if any(tool in part for tool in ('systemctl', 'journalctl')):
+                        logger.debug(f"Found systemctl/journalctl in part {i}")
+                        if '--no-pager' not in part:
+                            part += ' --no-pager'
+                            logger.debug(f"Added --no-pager to part {i}")
+                        # Add --plain for systemctl
+                        if 'systemctl' in part and '--plain' not in part:
+                            part += ' --plain'
+                            logger.debug(f"Added --plain to part {i}")
+                    else:
+                        logger.debug(f"No systemctl/journalctl found in part {i}")
+                    processed_parts.append(part)
+                stripped = ' | '.join(processed_parts)
+                logger.debug(f"Processed piped command: '{stripped}'")
+            else:
+                # No pipes, process the whole command
+                for tool in ('systemctl', 'journalctl'):
+                    if f' {tool} ' in f' {stripped} ':
+                        if '--no-pager' not in stripped:
+                            stripped += ' --no-pager'
+                        # Prefer plain output to reduce control codes
+                        if tool == 'systemctl' and '--plain' not in stripped:
+                            stripped += ' --plain'
+                logger.debug(f"Processed non-piped command: '{stripped}'")
+            
+            logger.debug(f"Noninteractive transform output: '{stripped}'")
+            return stripped
+        except Exception as e:
+            logger.debug(f"Noninteractive transform failed for '{original}': {e}")
+            return original
+    
     def _send_command(self, context: Dict[str, Any]) -> None:
         """Send the command to the SSH channel."""
-        cmd_with_status = f"set +e; {context['sanitized_command']}; echo __EXIT_STATUS:$?__"
+        # Transform to avoid interactive behaviors
+        to_send = self._make_command_noninteractive(context['sanitized_command'])
+        cmd_with_status = f"set +e; {to_send}; echo __EXIT_STATUS:$?__"
         self.channel.send(cmd_with_status + '\n')
     
     async def _read_command_output(self, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -233,13 +334,68 @@ class SSHSession:
         
         end_time = time.time() + context['timeout_seconds']
         last_output_time = time.time()
+        last_password_check_time = time.time()
+        
+        # For sudo commands, be more aggressive with password handling
+        is_sudo_command = context['command'].strip().startswith('sudo')
+        sudo_password_sent = False
+        initial_wait_time = 0.5  # Wait 0.5 seconds before first password attempt
+        max_wait_time = 3.0  # Maximum time to wait before sending password proactively
         
         while time.time() < end_time:
             if self._is_hanging(last_output_time, context['start_time']):
-                return self._create_timeout_result(context['start_time'])
+                # If hanging and we have a password manager, try proactive password handling
+                if context['password_manager'] and (time.time() - last_password_check_time) > 1:  # Reduced from 2 to 1 second
+                    logger.debug(f"Command hanging, attempting proactive password handling for session {self.session_id}")
+                    await self._handle_password_prompts(context, output_data)
+                    last_password_check_time = time.time()
+                    # Give a bit more time after sending password
+                    last_output_time = time.time()
+                    await asyncio.sleep(0.1)
+                    continue
+                else:
+                    # Use sudo-specific timeout for sudo commands
+                    if is_sudo_command:
+                        return self._create_sudo_timeout_result(context['start_time'], context['command'])
+                    else:
+                        return self._create_timeout_result(context['start_time'])
             
             await self._process_stdout_chunk(context, output_data, last_output_time)
             await self._process_stderr_chunk(context, output_data, last_output_time)
+            
+            # Always check for password prompts if we have a password manager
+            if context['password_manager'] and (time.time() - last_password_check_time) > 0.5:
+                await self._handle_password_prompts(context, output_data)
+                last_password_check_time = time.time()
+            
+            # For sudo commands, use a more sophisticated timing strategy
+            if is_sudo_command and not sudo_password_sent and context['password_manager']:
+                current_time = time.time()
+                time_since_start = current_time - context['start_time']
+                
+                # Strategy 1: Wait for actual password prompt (preferred)
+                if 'password' in output_data['buffer'].lower() or '[sudo]' in output_data['buffer']:
+                    logger.debug(f"Password prompt detected in output, sending password for session {self.session_id}")
+                    await self._handle_password_prompts(context, output_data)
+                    sudo_password_sent = True
+                    last_password_check_time = time.time()
+                    await asyncio.sleep(0.2)
+                
+                # Strategy 2: Proactive sending if no output after initial wait
+                elif time_since_start > initial_wait_time and not output_data['buffer'].strip():
+                    logger.debug(f"Sudo command with no output after {time_since_start:.2f}s, sending password proactively for session {self.session_id}")
+                    await self._handle_password_prompts(context, output_data)
+                    sudo_password_sent = True
+                    last_password_check_time = time.time()
+                    await asyncio.sleep(0.2)
+                
+                # Strategy 3: Last resort - send password after maximum wait time
+                elif time_since_start > max_wait_time:
+                    logger.debug(f"Sudo command with no output after {time_since_start:.2f}s (max wait), sending password as last resort for session {self.session_id}")
+                    await self._handle_password_prompts(context, output_data)
+                    sudo_password_sent = True
+                    last_password_check_time = time.time()
+                    await asyncio.sleep(0.2)
             
             if self._should_stop_reading(output_data, context):
                 break
@@ -265,6 +421,19 @@ class SSHSession:
             'timeout_error': "Command timed out - may be waiting for input. Check if password is required."
         }
     
+    def _create_sudo_timeout_result(self, start_time: float, command: str) -> Dict[str, Any]:
+        """Create timeout result specifically for sudo commands."""
+        logger.warning(f"Sudo command appears to be hanging (no output for 10s) in session {self.session_id}: {command}")
+        return {
+            'stdout_parts': [],
+            'stderr_parts': [],
+            'buffer': "",
+            'total_bytes': 0,
+            'truncated': False,
+            'exit_status': 1,
+            'timeout_error': f"Sudo command timed out: {command}. Ensure sudo password is configured correctly."
+        }
+    
     async def _process_stdout_chunk(self, context: Dict[str, Any], output_data: Dict[str, Any], 
                                   last_output_time: float) -> None:
         """Process a chunk of stdout data."""
@@ -275,6 +444,32 @@ class SSHSession:
         output_data['buffer'] += chunk
         output_data['total_bytes'] += len(chunk)
         last_output_time = time.time()
+        
+        # Check for password-related errors
+        if context['command'].strip().startswith('sudo'):
+            # Check if password was interpreted as a command
+            if 'command not found' in chunk.lower() and context.get('password_manager'):
+                # This might indicate the password was sent at the wrong time
+                logger.warning(f"Possible password timing issue detected in session {self.session_id}: 'command not found' in output")
+            # If sudo prompt persists, sometimes a newline helps flush
+            sudo_prompt_patterns = [
+                r'\[sudo\] password for [^:]+:',
+                r'password for [^:]+:',
+                r'Password:',
+                r'password:',
+                r'sudo: a terminal is required to read the password',
+                r'sudo: no tty present and no askpass program specified',
+                r'PAM authentication error',
+                r'Try again\.'
+            ]
+            try:
+                for p in sudo_prompt_patterns:
+                    if re.search(p, chunk, re.IGNORECASE):
+                        # Nudge terminal in case it's waiting for EOL
+                        self.channel.send('\n')
+                        break
+            except Exception:
+                pass
         
         await self._handle_password_prompts(context, output_data)
         self._check_exit_status(output_data)
@@ -306,29 +501,69 @@ class SSHSession:
             "username": self.username
         }
         
+        # Check if this is a sudo command and we have a password manager
+        if context['command'].strip().startswith('sudo') and context.get('password_manager'):
+            # For sudo commands, be more aggressive in password handling
+            logger.debug(f"Sudo command detected, checking for password prompt in session {self.session_id}")
+            
+            # Check if we've been waiting for a while without output
+            if not output_data['buffer'].strip():
+                # Try sending the password proactively for sudo commands
+                # Get the sudo password from the password manager
+                sudo_handler = context['password_manager'].get_handler_for_type('sudo')
+                if sudo_handler and hasattr(sudo_handler, 'sudo_password') and sudo_handler.sudo_password:
+                    logger.info(f"Proactively sending sudo password for session {self.session_id} (command: {context['command']})")
+                    # Send password with proper newline and flush
+                    self.channel.send(sudo_handler.sudo_password + '\n')
+                    # Clear the buffer to avoid re-processing the same prompt
+                    output_data['buffer'] = ""
+                    return
+                else:
+                    # Try to get password from any handler that can handle sudo
+                    for handler in context['password_manager'].handlers:
+                        if handler.can_handle('sudo') and hasattr(handler, 'sudo_password') and handler.sudo_password:
+                            logger.info(f"Proactively sending sudo password from {handler.__class__.__name__} for session {self.session_id}")
+                            # Send password with proper newline and flush
+                            self.channel.send(handler.sudo_password + '\n')
+                            # Clear the buffer to avoid re-processing the same prompt
+                            output_data['buffer'] = ""
+                            return
+        
         password_response = await context['password_manager'].detect_and_handle_prompt(
             output_data['buffer'], prompt_context
         )
         
         if password_response and password_response.password:
+            logger.info(f"Sending password for session {self.session_id} (command: {context['command']})")
+            # Send password with proper newline and flush
             self.channel.send(password_response.password + '\n')
-            logger.info(f"Sent password for session {self.session_id}")
+            # Clear the buffer to avoid re-processing the same prompt
             output_data['buffer'] = ""
         elif password_response and password_response.error:
-            logger.warning(f"Password handling error: {password_response.error}")
+            logger.warning(f"Password handling error in session {self.session_id}: {password_response.error}")
+            output_data['password_error'] = password_response.error
+            output_data['exit_status'] = 1
+        elif password_response and password_response.cancelled:
+            logger.info(f"Password request cancelled for session {self.session_id}")
+            output_data['password_error'] = "Password request was cancelled"
+            output_data['exit_status'] = 1
     
     def _check_for_password_prompt_without_manager(self, context: Dict[str, Any], output_data: Dict[str, Any]) -> None:
         """Check for password prompt when no password manager is available."""
         sudo_patterns = [
             r'\[sudo\] password for [^:]+:',
+            r'\[sudo\] password for [^:]*$',
             r'Password:',
+            r'password:',
             r'sudo: a terminal is required to read the password',
+            r'sudo: no tty present and no askpass program specified',
+            r'We trust you have received the usual lecture from the local System',
         ]
         
         for pattern in sudo_patterns:
             if re.search(pattern, output_data['buffer'], re.IGNORECASE):
                 logger.warning(f"Password prompt detected but no password provided for session {self.session_id}")
-                output_data['password_error'] = "Password required but not provided. Use sudo_password parameter."
+                output_data['password_error'] = "Password required but not provided. Use sudo_password parameter or set MCP_SSH_SUDO_PASSWORD environment variable."
                 output_data['exit_status'] = 1
                 break
     
@@ -499,6 +734,13 @@ class SSHSession:
             "export PS1='$ '",  # Simple prompt
             "set +o emacs",     # Disable line editing
             "stty -echo",       # Disable echo for cleaner output
+            # Disable pagers to avoid interactive hangs (systemctl/journalctl/less)
+            "export PAGER=cat",
+            "export SYSTEMD_PAGER=cat",
+            "export SYSTEMD_LESS=",
+            "export SYSTEMD_COLORS=0",
+            "export GIT_PAGER=cat",
+            "export MANPAGER=cat",
         ]
         
         for cmd in setup_commands:

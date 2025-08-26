@@ -10,6 +10,97 @@ A robust, SOLID-compliant Multi-Context Protocol (MCP) server for remote SSH ope
 - **Session Management**: Persistent SSH sessions with automatic cleanup
 - **Tool Handlers**: Extensible tool system for SSH operations
 - **Timeout Management**: Intelligent timeout handling to prevent hanging commands
+- **🔒 Permissibility Levels**: Configurable security levels (low, medium, high) for fine-grained access control
+
+## 🔒 Permissibility Levels
+
+The MCP Remote SSH server supports three configurable permissibility levels that control which commands and operations are allowed:
+
+### **Low Permissibility** (Read-Only Operations)
+- **Description**: Basic read-only operations only
+- **Allowed**: File viewing, system information, network diagnostics
+- **Blocked**: File modifications, sudo, command chaining, system changes
+- **Use Case**: Monitoring, diagnostics, read-only access
+
+**Example Commands**:
+```bash
+ls -la                    # ✅ Allowed
+cat /etc/hostname        # ✅ Allowed
+ps aux                   # ✅ Allowed
+df -h                    # ✅ Allowed
+sudo apt update          # ❌ Denied
+cp file1 file2           # ❌ Denied
+ls && echo 'success'     # ❌ Denied
+```
+
+### **Medium Permissibility** (Safe Operations)
+- **Description**: Read operations + safe write operations
+- **Allowed**: File operations, system administration (non-destructive), package management
+- **Blocked**: Sudo operations, dangerous system modifications, command chaining
+- **Use Case**: Development, testing, safe administrative tasks
+
+**Example Commands**:
+```bash
+ls -la                    # ✅ Allowed
+cp file1 file2           # ✅ Allowed
+systemctl status ssh     # ✅ Allowed
+journalctl -u ssh        # ✅ Allowed
+sudo apt update          # ❌ Denied
+sudo reboot              # ❌ Denied
+ls && echo 'success'     # ❌ Denied
+```
+
+### **High Permissibility** (Administrative Access)
+- **Description**: Full administrative access with sudo
+- **Allowed**: All operations including sudo, command chaining, system control
+- **Blocked**: Only the most dangerous operations (rm -rf /, disk wiping, etc.)
+- **Use Case**: System administration, deployment, full access scenarios
+
+**Example Commands**:
+```bash
+ls -la                    # ✅ Allowed
+sudo apt update          # ✅ Allowed
+sudo systemctl restart ssh # ✅ Allowed
+ls && echo 'success'     # ✅ Allowed
+ps aux | grep ssh        # ✅ Allowed
+rm -rf /                 # ❌ Denied (always blocked)
+dd if=/dev/zero of=/dev/sda # ❌ Denied (always blocked)
+```
+
+### Configuration
+
+#### Environment Variable
+```bash
+export MCP_SSH_PERMISSIBILITY_LEVEL=high
+```
+
+#### JSON Configuration File
+```yaml
+security:
+  permissibility_level: high  # low, medium, or high
+```
+
+#### MCP Configuration
+```json
+{
+  "mcpServers": {
+    "production-ssh": {
+      "env": {
+        "MCP_SSH_PERMISSIBILITY_LEVEL": "high"
+      }
+    }
+  }
+}
+```
+
+### Getting Permissibility Information
+
+Use the `ssh_get_permissibility_info` tool to check current settings:
+
+```python
+# This will return information about the current permissibility level
+# and what operations are allowed/blocked
+```
 
 ## 📁 Project Structure
 
@@ -61,7 +152,17 @@ export MCP_SSH_USER="your-username"
 export MCP_SSH_KEY="/path/to/your/ssh/key"
 export MCP_SSH_SUDO_PASSWORD="your-sudo-password"  # Optional
 export MCP_SSH_INTERACTIVE_PASSWORD="true"         # Optional
+
+# Password Configuration
+export MCP_PASSWORD="your-default-password"        # Fallback for both SSH and sudo
+export MCP_SSH_PASSWORD="your-ssh-password"        # SSH-specific password
+export MCP_SSH_SUDO_PASSWORD="your-sudo-password"  # Sudo-specific password
 ```
+
+**Password Priority Order:**
+1. `MCP_SSH_PASSWORD` / `MCP_SSH_SUDO_PASSWORD` (specific passwords)
+2. `MCP_PASSWORD` (fallback for both)
+3. No password (interactive prompt if enabled)
 
 #### MCP Configuration File
 
@@ -98,8 +199,9 @@ For Cursor IDE integration, create a `.cursor/mcp.json` file:
         "MCP_SSH_KEY": "/path/to/your/ssh/staging_key",
         "MCP_SSH_PORT": "2222",
         "MCP_SERVER_NAME": "staging-ssh",
-        "MCP_SERVER_DESCRIPTION": "Staging Environment - Deployment Access",
-        "MCP_SSH_INTERACTIVE_PASSWORD": "true",
+        "MCP_SERVER_DESCRIPTION": "Staging Server - Safe Operations Only",
+        "MCP_SSH_PERMISSIBILITY_LEVEL": "medium",
+        "MCP_PASSWORD": "your-default-password",
         "DEBUG": "true",
         "LOG_LEVEL": "DEBUG"
       }

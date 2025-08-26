@@ -2,9 +2,10 @@
 
 import shlex
 import logging
+import re
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
-from .config import get_config
+from .config import get_config, PermissibilityLevel
 from .security_patterns import SecurityPatternManager
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ class SecurityManager:
         self.pattern_manager = SecurityPatternManager()
     
     def validate_command(self, command: str) -> CommandValidationResult:
-        """Validate if a command is allowed to run."""
+        """Validate if a command is allowed to run based on permissibility level."""
         if not command or not command.strip():
             return CommandValidationResult(False, "Empty command")
         
@@ -36,20 +37,33 @@ class SecurityManager:
             
             cmd_name = parts[0]
             
-            # Check if command is explicitly denied (but allow sudo for K8s administration)
-            if cmd_name in self.config.denied_commands and cmd_name != "sudo":
-                return CommandValidationResult(False, f"Command '{cmd_name}' is explicitly denied")
+            # Check if command is always denied regardless of permissibility level
+            if cmd_name in self.config.always_denied_commands:
+                return CommandValidationResult(False, f"Command '{cmd_name}' is always denied")
             
-            # Check if command is in allowed list
-            if cmd_name not in self.config.allowed_commands:
-                return CommandValidationResult(False, f"Command '{cmd_name}' is not in allowed list")
+            # Check if command is allowed for current permissibility level
+            allowed_commands = self.config.get_allowed_commands()
+            if cmd_name not in allowed_commands:
+                return CommandValidationResult(
+                    False, 
+                    f"Command '{cmd_name}' is not allowed for {self.config.permissibility_level.value} permissibility level"
+                )
+            
+            # Check for dangerous patterns based on permissibility level
+            denied_patterns = self.config.get_denied_patterns()
+            for pattern in denied_patterns:
+                if re.search(pattern, command, re.IGNORECASE):
+                    return CommandValidationResult(
+                        False, 
+                        f"Command contains forbidden pattern for {self.config.permissibility_level.value} permissibility level"
+                    )
             
             # Additional validation for specific commands
             args_string = ' '.join(parts[1:])
             if not self.pattern_manager.validate_command_args(cmd_name, args_string):
                 return CommandValidationResult(False, f"Unsafe arguments for command '{cmd_name}'")
             
-            # Check for dangerous patterns
+            # Check for dangerous patterns using pattern manager
             dangerous_matches = self.pattern_manager.check_dangerous_patterns(command)
             if dangerous_matches:
                 pattern_name = dangerous_matches[0].pattern_name
@@ -130,6 +144,35 @@ class SecurityManager:
             return CommandValidationResult(False, "Path not in allowed directories")
         
         return CommandValidationResult(True, "Path allowed", path)
+    
+    def get_permissibility_info(self) -> Dict[str, Any]:
+        """Get information about current permissibility level and restrictions."""
+        return {
+            "permissibility_level": self.config.permissibility_level.value,
+            "allowed_commands_count": len(self.config.get_allowed_commands()),
+            "denied_patterns_count": len(self.config.get_denied_patterns()),
+            "always_denied_commands": self.config.always_denied_commands,
+            "restrictions": {
+                "low": {
+                    "description": "Basic read-only operations only",
+                    "command_chaining": False,
+                    "sudo": False,
+                    "system_modifications": False
+                },
+                "medium": {
+                    "description": "Read operations + safe write operations",
+                    "command_chaining": False,
+                    "sudo": False,
+                    "system_modifications": False
+                },
+                "high": {
+                    "description": "Full administrative access with sudo",
+                    "command_chaining": True,
+                    "sudo": True,
+                    "system_modifications": True
+                }
+            }
+        }
 
 # Global security manager instance
 security_manager = SecurityManager()
